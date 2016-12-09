@@ -1,0 +1,82 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+
+    //lint配置
+    lintOptions {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    defaultConfig {
+        applicationId "com.example.wxqhb"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode rootProject.ext.versionCode
+        versionName rootProject.ext.versionName
+
+        // dex突破65535的限制
+        //multiDexEnabled true
+
+        ndk {
+            abiFilters "armeabi-v7a"  // 指定要ndk需要兼容的架构(这样其他依赖包里mips,x86,armeabi,arm-v8之类的so会被过滤掉)
+        }
+    }
+
+//    signingConfigs {
+//        def pFile = file("../key.properties")
+//        def Properties p = new Properties()
+//        p.load(new FileInputStream(pFile))
+//
+//        debug {
+//            storeFile file(p['DEBUG_STORE_FILE'])
+//        }
+//        release {
+//            storeFile file(p['RELEASE_STORE_FILE'])
+//            storePassword p['RELEASE_STORE_PASSWORD']
+//            keyAlias p['RELEASE_KEY_ALIAS']
+//            keyPassword p['RELEASE_KEY_PASSWORD']
+//        }
+//    }
+
+    buildTypes {
+        debug {
+
+            buildConfigField "boolean", "LOG_DEBUG", "true"// 显示Log
+            buildConfigField "boolean", "LOG_WRITE", "false"//sd中写log信息
+
+            minifyEnabled false
+            zipAlignEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.debug
+        }
+
+        release {
+            buildConfigField "boolean", "LOG_DEBUG", "false"// 显示Log
+            buildConfigField "boolean", "LOG_WRITE", "false"//sd中写log信息
+
+            minifyEnabled false
+            shrinkResources false  //移除无用的resource文件（如果使用getIdentifier函数的需要关闭）
+            zipAlignEnabled false  //Zipalign优化
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+    sourceSets {
+        main {
+            java.srcDirs = ['src/main/java', 'src/main/java-gen']
+        }
+    }
+}
+dependencies {
+    compile fileTree(include: ['*.jar'], dir: 'libs')
+    compile 'com.android.support:appcompat-v7:23.0.1'
+}
+
+
