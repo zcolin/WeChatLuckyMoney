@@ -15,6 +15,7 @@ import android.app.PendingIntent;
 import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.Context;
+import android.graphics.Rect;
 import android.os.Build;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
@@ -23,10 +24,15 @@ import android.widget.Toast;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 
 public class QiangHongBaoService extends AccessibilityService {
+    /**
+     * TODO 直接使用findAccessibilityNodeInfosByText获取不到，这个Id没验证在不同的手机和不同的微信版本会不会改变
+     */
+    static final String STR_ID_MAINPAGE_HONGBAO = "com.tencent.mm:id/aef";//"[微信红包]"出现的地方
+    static final String STR_ID_CHATPAGE_HONGBAO = "com.tencent.mm:id/a5l";//"查看红包"/"领取红包" 出现的地方
+    static final int    I_HEIGHT_FLAG           = 55;                //高度标准，红包距离底部的距离超过这个标准判断为新红包
 
     static final String TAG                   = "QiangHongBao";
     /**
@@ -52,6 +58,9 @@ public class QiangHongBaoService extends AccessibilityService {
      */
     private long lastSourceId;
 
+    private int   screenHeight;//dp
+    private float screenDensity;
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         final int eventType = event.getEventType();
@@ -73,8 +82,11 @@ public class QiangHongBaoService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        screenDensity = ScreenUtil.getScreenDensity(getApplicationContext());
+        screenHeight = (int) (ScreenUtil.getScreenHeight(getApplicationContext()) / screenDensity);
         Toast.makeText(this, "连接抢红包服务", Toast.LENGTH_SHORT)
              .show();
+
     }
 
     /**
@@ -151,12 +163,10 @@ public class QiangHongBaoService extends AccessibilityService {
             lastSourceId = 0; //从聊天页面出来了，清除保存的sourceId；
             AccessibilityNodeInfo nodeInfo = event.getSource();
             if (nodeInfo != null) {
-                /**
-                 * TODO 直接使用findAccessibilityNodeInfosByText获取不到，这个Id没验证在不同的手机会不会改变
-                 */
-                List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByViewId("com.tencent.mm:id/aef");
+                List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_MAINPAGE_HONGBAO);
                 for (AccessibilityNodeInfo accessibilityNodeInfo : list) {
-                    if ("[微信红包]".equals(String.valueOf(accessibilityNodeInfo.getText()))) {
+                    String str = String.valueOf(accessibilityNodeInfo.getText());
+                    if (str != null && str.startsWith("[微信红包]")) {
                         accessibilityNodeInfo.getParent()
                                              .performAction(AccessibilityNodeInfo.ACTION_CLICK);//进入聊天页面
                         break;
@@ -174,23 +184,50 @@ public class QiangHongBaoService extends AccessibilityService {
      */
     private void openHongBaoInChatPage(AccessibilityEvent event) {
         AccessibilityNodeInfo nodeInfo = event.getSource();
-        List<AccessibilityNodeInfo> list = new ArrayList<>();
-        if (nodeInfo != null && nodeInfo.getChildCount() > 0) {
-            List<AccessibilityNodeInfo> list1 = nodeInfo.findAccessibilityNodeInfosByText("查看红包");//自己发的红包
-            List<AccessibilityNodeInfo> list2 = nodeInfo.findAccessibilityNodeInfosByText("领取红包");//别人发的红包
-            if (list1.size() > 0) {
-                list.addAll(list1);
-            }
-            if (list2.size() > 0) {
-                list.addAll(list2);
-            }
+        List<AccessibilityNodeInfo> list = null;
+        AccessibilityNodeInfo rootNodeInfo = null;
+        if (nodeInfo != null && "android.widget.TextView".equals(nodeInfo.getClassName())) {//消息内容改变的时候
+            rootNodeInfo = getRootInActiveWindow();
+            if (rootNodeInfo != null) {
+                list = rootNodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_CHATPAGE_HONGBAO);
+                if (list != null && list.size() > 0) {
 
+                    /**
+                     * 这个地方之后收到新消息之后才会进来，普通滑动无法进入到这里面
+                     *
+                     *  接收到新消息的时候，如果是红包，则红包的sourceId还是和刚才的Id一样，并且内容包括各种Id都没有任何变化 
+                     *  所以通过Id无法判断是不是来新的红包了。
+                     *
+                     *  在此我收到新消息之后，判断最后一个红包bottom距底部的位置<规定的高度,则判断为这是一个新红包，需要抢
+                     *  这样如果红包之后发一条文字信息，可能还会打开一次，但是这样是我能想到的最好的解决方案了
+                     */
+                    for (int i = list.size() - 1; i >= 0; i--) {
+                        Rect rect = new Rect();
+                        if (list.get(i)
+                                .getParent() != null && list.get(i)
+                                                            .getParent()
+                                                            .getParent() != null) {
+                            list.get(i)
+                                .getParent()
+                                .getParent()
+                                .getBoundsInScreen(rect);
+                            if (screenHeight - rect.bottom / screenDensity < I_HEIGHT_FLAG) {//以此判断红包在最后一个
+                                lastSourceId = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (nodeInfo != null && nodeInfo.getChildCount() > 0) {//拖动内容的时候
+            list = nodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_CHATPAGE_HONGBAO);
+        }
+        if (list != null && list.size() > 0) {
             //只抢最后一个
             for (int i = list.size() - 1; i >= 0; i--) {
                 AccessibilityNodeInfo parent = list.get(i)
                                                    .getParent();
                 if (parent != null) {
-                    long sourceId = getSourdeId(parent);//在listview中会循环出现，所以只能保证在一屏下是唯一的，而不是全局唯一
+                    long sourceId = getSouceNodeId(parent);//在listview中会循环出现，所以只能保证在一屏下是唯一的，而不是全局唯一
                     if ("android.widget.LinearLayout".equals(parent.getClassName()) && lastSourceId != sourceId) {
                         lastSourceId = sourceId;
                         parent.performAction(AccessibilityNodeInfo.ACTION_CLICK);
@@ -198,7 +235,13 @@ public class QiangHongBaoService extends AccessibilityService {
                     break;
                 }
             }
+        }
+
+        if (nodeInfo != null) {
             nodeInfo.recycle();
+        }
+        if (rootNodeInfo != null) {
+            rootNodeInfo.recycle();
         }
     }
 
@@ -222,7 +265,8 @@ public class QiangHongBaoService extends AccessibilityService {
 
             if (!isHave) {
                 List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByText("红包派完了");
-                if (list != null && list.size() > 0) {
+                List<AccessibilityNodeInfo> list1 = nodeInfo.findAccessibilityNodeInfosByText("该红包已超过24小时");
+                if ((list != null && list.size() > 0) || (list1 != null && list1.size() > 0)) {
                     performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
                 }
             }
@@ -233,7 +277,7 @@ public class QiangHongBaoService extends AccessibilityService {
     /**
      * 获取sourdeId，当前屏幕唯一
      */
-    private long getSourdeId(AccessibilityNodeInfo info) {
+    private long getSouceNodeId(AccessibilityNodeInfo info) {
         long sourceId = 0;
         try {
             Method method = AccessibilityNodeInfo.class.getMethod("getSourceNodeId");
