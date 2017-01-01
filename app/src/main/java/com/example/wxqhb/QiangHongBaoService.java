@@ -10,14 +10,10 @@
 package com.example.wxqhb;
 
 import android.accessibilityservice.AccessibilityService;
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.PendingIntent;
-import android.app.usage.UsageStats;
-import android.app.usage.UsageStatsManager;
-import android.content.Context;
 import android.graphics.Rect;
-import android.os.Build;
-import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
@@ -31,7 +27,6 @@ public class QiangHongBaoService extends AccessibilityService {
      * TODO 直接使用findAccessibilityNodeInfosByText获取不到，这个Id没验证在不同的手机和不同的微信版本会不会改变
      */
     static final String STR_ID_MAINPAGE_HONGBAO = "com.tencent.mm:id/aef";//"[微信红包]"出现的地方
-    static final String STR_ID_CHATPAGE_HONGBAO = "com.tencent.mm:id/a5l";//"查看红包"/"领取红包" 出现的地方
     static final int    I_HEIGHT_FLAG           = 55;                //高度标准，红包距离底部的距离超过这个标准判断为新红包
 
     static final String TAG                   = "QiangHongBao";
@@ -58,8 +53,10 @@ public class QiangHongBaoService extends AccessibilityService {
      */
     private long lastSourceId;
 
-    private int   screenHeight;//dp
+    private int   screenHeight;
     private float screenDensity;
+
+    private KeyguardManager.KeyguardLock mKeyGuardLock;
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -82,11 +79,10 @@ public class QiangHongBaoService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
-        screenDensity = ScreenUtil.getScreenDensity(getApplicationContext());
-        screenHeight = (int) (ScreenUtil.getScreenHeight(getApplicationContext()) / screenDensity);
+        screenDensity = Util.getScreenDensity(getApplicationContext());
+        screenHeight = Util.getScreenHeight(getApplicationContext());
         Toast.makeText(this, "连接抢红包服务", Toast.LENGTH_SHORT)
              .show();
-
     }
 
     /**
@@ -112,6 +108,9 @@ public class QiangHongBaoService extends AccessibilityService {
         }
 
         try {
+            mKeyGuardLock = Util.disableKeylock(getApplicationContext());
+            Util.acquireWakeLock(getApplicationContext());
+
             Notification notification = (Notification) event.getParcelableData();
             PendingIntent pendingIntent = notification.contentIntent;
             pendingIntent.send();
@@ -155,10 +154,10 @@ public class QiangHongBaoService extends AccessibilityService {
         boolean isFlag = false;
         AccessibilityNodeInfo rootNodeInfo = getRootInActiveWindow();
         /*在聊天界面才会有"更多功能按钮,已折叠"，主页面不会有, 由此判断是不是在主页面*/
-        if (rootNodeInfo != null && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已折叠")
-                                                .isEmpty()
-                && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮")
-                               .size() > 0) {
+        if (rootNodeInfo != null && (rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已折叠")
+                                                 .isEmpty() && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已展开")
+                                                                           .isEmpty()) && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮")
+                                                                                                      .size() > 0) {
             isFlag = true;
             lastSourceId = 0; //从聊天页面出来了，清除保存的sourceId；
             AccessibilityNodeInfo nodeInfo = event.getSource();
@@ -189,7 +188,8 @@ public class QiangHongBaoService extends AccessibilityService {
         if (nodeInfo != null && "android.widget.TextView".equals(nodeInfo.getClassName())) {//消息内容改变的时候
             rootNodeInfo = getRootInActiveWindow();
             if (rootNodeInfo != null) {
-                list = rootNodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_CHATPAGE_HONGBAO);
+                list = rootNodeInfo.findAccessibilityNodeInfosByText("微信红包");
+                checkList(list);
                 if (list != null && list.size() > 0) {
 
                     /**
@@ -211,7 +211,7 @@ public class QiangHongBaoService extends AccessibilityService {
                                 .getParent()
                                 .getParent()
                                 .getBoundsInScreen(rect);
-                            if (screenHeight - rect.bottom / screenDensity < I_HEIGHT_FLAG) {//以此判断红包在最后一个
+                            if ((screenHeight - rect.bottom) / screenDensity < I_HEIGHT_FLAG) {//以此判断红包在最后一个,也就是刚发的
                                 lastSourceId = 0;
                             }
                         }
@@ -219,8 +219,10 @@ public class QiangHongBaoService extends AccessibilityService {
                 }
             }
         } else if (nodeInfo != null && nodeInfo.getChildCount() > 0) {//拖动内容的时候
-            list = nodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_CHATPAGE_HONGBAO);
+            list = nodeInfo.findAccessibilityNodeInfosByText("微信红包");
+            checkList(list);
         }
+
         if (list != null && list.size() > 0) {
             //只抢最后一个
             for (int i = list.size() - 1; i >= 0; i--) {
@@ -242,6 +244,32 @@ public class QiangHongBaoService extends AccessibilityService {
         }
         if (rootNodeInfo != null) {
             rootNodeInfo.recycle();
+        }
+    }
+
+    /**
+     * 通过微信红包获取的值可能不准，此时需要再通过其他字段校验
+     */
+    private void checkList(List<AccessibilityNodeInfo> list) {
+        if (list != null) {
+            for (int i = 0; i < list.size(); i++) {
+                AccessibilityNodeInfo parent = list.get(i)
+                                                   .getParent();
+                if (parent != null) {
+                    AccessibilityNodeInfo parent1 = list.get(i)
+                                                        .getParent();
+                    if (parent1 != null && "android.widget.LinearLayout".equals(parent1.getClassName())) {
+                        List<AccessibilityNodeInfo> tempList = parent1.findAccessibilityNodeInfosByText("领取红包");
+                        if (tempList == null || tempList.size() == 0) {
+                            tempList = parent1.findAccessibilityNodeInfosByText("查看红包");
+                            if (tempList == null || tempList.size() == 0) {
+                                list.remove(i);
+                                i--;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -272,6 +300,12 @@ public class QiangHongBaoService extends AccessibilityService {
             }
             nodeInfo.recycle();
         }
+
+        //如果是自动解锁的，此时需要锁上屏幕，为下一次自动解锁
+        if (mKeyGuardLock != null) {
+            mKeyGuardLock.reenableKeyguard();
+            mKeyGuardLock = null;
+        }
     }
 
     /**
@@ -288,39 +322,5 @@ public class QiangHongBaoService extends AccessibilityService {
             e.printStackTrace();
         }
         return sourceId;
-    }
-
-
-    /**
-     * 5.0之后不支持获取topActiivty的名字，只支持获取包名
-     *
-     * @deprecated 不再检测栈顶的app是不是微信
-     */
-    private String getTopApp(Context context) {
-        String topActivity = null;
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP) {
-            UsageStatsManager m = (UsageStatsManager) context.getSystemService(Context.USAGE_STATS_SERVICE);
-            if (m != null) {
-                long now = System.currentTimeMillis();
-                //获取60秒之内的应用数据  
-                List<UsageStats> stats = m.queryUsageStats(UsageStatsManager.INTERVAL_BEST, now - 60 * 1000, now);
-
-                //取得最近运行的一个app，即当前运行的app  
-                if ((stats != null) && (!stats.isEmpty())) {
-                    int j = 0;
-                    for (int i = 0; i < stats.size(); i++) {
-                        if (stats.get(i)
-                                 .getLastTimeUsed() > stats.get(j)
-                                                           .getLastTimeUsed()) {
-                            j = i;
-                        }
-                    }
-                    topActivity = stats.get(j)
-                                       .getPackageName();
-                }
-                Log.i(TAG, "top running app is : " + topActivity);
-            }
-        }
-        return topActivity;
     }
 }
