@@ -14,6 +14,7 @@ import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.graphics.Rect;
+import android.os.SystemClock;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
@@ -21,13 +22,14 @@ import android.widget.Toast;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Random;
 
 public class QiangHongBaoService extends AccessibilityService {
     /**
      * TODO 直接使用findAccessibilityNodeInfosByText获取不到，这个Id没验证在不同的手机和不同的微信版本会不会改变
      */
-    static final String STR_ID_MAINPAGE_HONGBAO = "com.tencent.mm:id/aef";//"[微信红包]"出现的地方
-    static final int    I_HEIGHT_FLAG           = 55;                //高度标准，红包距离底部的距离超过这个标准判断为新红包
+    static final String STR_ID_MAINPAGE_HONGBAO = "com.tencent.mm:id/apv";//"[微信红包]"出现的地方
+    static final int    I_HEIGHT_FLAG           = 55;                //高度标准，红包距离底部的距离超过这个标准判断为新红包(现在微信的红包抢过的状态会改变，所以不用判断高度了)
 
     static final String TAG                   = "QiangHongBao";
     /**
@@ -72,8 +74,7 @@ public class QiangHongBaoService extends AccessibilityService {
 
     @Override
     public void onInterrupt() {
-        Toast.makeText(this, "中断抢红包服务", Toast.LENGTH_SHORT)
-             .show();
+        Toast.makeText(this, "中断抢红包服务", Toast.LENGTH_SHORT).show();
     }
 
     @Override
@@ -81,8 +82,7 @@ public class QiangHongBaoService extends AccessibilityService {
         super.onServiceConnected();
         screenDensity = Util.getScreenDensity(getApplicationContext());
         screenHeight = Util.getScreenHeight(getApplicationContext());
-        Toast.makeText(this, "连接抢红包服务", Toast.LENGTH_SHORT)
-             .show();
+        Toast.makeText(this, "连接抢红包服务", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -129,6 +129,7 @@ public class QiangHongBaoService extends AccessibilityService {
         }
         //拆完红包后看详细的纪录界面
         else if (WECHAT_DETAIL.equals(event.getClassName())) {
+            SystemClock.sleep(500);//此页面不延时
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
         }
         //在聊天界面,去点中红包
@@ -156,8 +157,7 @@ public class QiangHongBaoService extends AccessibilityService {
         /*在聊天界面才会有"更多功能按钮,已折叠"，主页面不会有, 由此判断是不是在主页面*/
         if (rootNodeInfo != null && (rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已折叠")
                                                  .isEmpty() && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已展开")
-                                                                           .isEmpty()) && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮")
-                                                                                                      .size() > 0) {
+                                                                           .isEmpty()) && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮").size() > 0) {
             isFlag = true;
             lastSourceId = 0; //从聊天页面出来了，清除保存的sourceId；
             AccessibilityNodeInfo nodeInfo = event.getSource();
@@ -165,9 +165,8 @@ public class QiangHongBaoService extends AccessibilityService {
                 List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_MAINPAGE_HONGBAO);
                 for (AccessibilityNodeInfo accessibilityNodeInfo : list) {
                     String str = String.valueOf(accessibilityNodeInfo.getText());
-                    if (str != null && str.startsWith("[微信红包]")) {
-                        accessibilityNodeInfo.getParent()
-                                             .performAction(AccessibilityNodeInfo.ACTION_CLICK);//进入聊天页面
+                    if (str != null && str.contains("[微信红包]")) {
+                        accessibilityNodeInfo.getParent().performAction(AccessibilityNodeInfo.ACTION_CLICK);//进入聊天页面
                         break;
                     }
                 }
@@ -203,16 +202,16 @@ public class QiangHongBaoService extends AccessibilityService {
                      */
                     for (int i = list.size() - 1; i >= 0; i--) {
                         Rect rect = new Rect();
-                        if (list.get(i)
-                                .getParent() != null && list.get(i)
-                                                            .getParent()
-                                                            .getParent() != null) {
-                            list.get(i)
-                                .getParent()
-                                .getParent()
-                                .getBoundsInScreen(rect);
-                            if ((screenHeight - rect.bottom) / screenDensity < I_HEIGHT_FLAG) {//以此判断红包在最后一个,也就是刚发的
-                                lastSourceId = 0;
+                        //自己发的查看红包点击之后状态不变
+                        if (list.get(i).getParent() != null && list.get(i).getParent().getParent() != null) {
+                            if (list.get(i).getParent() != null && list.get(i).getParent().getChild(1) != null && "查看红包".equals(list.get(i)
+                                                                                                                                    .getParent()
+                                                                                                                                    .getChild(1)
+                                                                                                                                    .getText())) {
+                                list.get(i).getParent().getParent().getBoundsInScreen(rect);
+                                if ((screenHeight - rect.bottom) / screenDensity < I_HEIGHT_FLAG) {//以此判断红包在最后一个,也就是刚发的
+                                    lastSourceId = 0;
+                                }
                             }
                         }
                     }
@@ -226,8 +225,7 @@ public class QiangHongBaoService extends AccessibilityService {
         if (list != null && list.size() > 0) {
             //只抢最后一个
             for (int i = list.size() - 1; i >= 0; i--) {
-                AccessibilityNodeInfo parent = list.get(i)
-                                                   .getParent();
+                AccessibilityNodeInfo parent = list.get(i).getParent();
                 if (parent != null) {
                     long sourceId = getSouceNodeId(parent);//在listview中会循环出现，所以只能保证在一屏下是唯一的，而不是全局唯一
                     if ("android.widget.LinearLayout".equals(parent.getClassName()) && lastSourceId != sourceId) {
@@ -253,11 +251,9 @@ public class QiangHongBaoService extends AccessibilityService {
     private void checkList(List<AccessibilityNodeInfo> list) {
         if (list != null) {
             for (int i = 0; i < list.size(); i++) {
-                AccessibilityNodeInfo parent = list.get(i)
-                                                   .getParent();
+                AccessibilityNodeInfo parent = list.get(i).getParent();
                 if (parent != null) {
-                    AccessibilityNodeInfo parent1 = list.get(i)
-                                                        .getParent();
+                    AccessibilityNodeInfo parent1 = list.get(i).getParent();
                     if (parent1 != null && "android.widget.LinearLayout".equals(parent1.getClassName())) {
                         List<AccessibilityNodeInfo> tempList = parent1.findAccessibilityNodeInfosByText("领取红包");
                         if (tempList == null || tempList.size() == 0) {
@@ -279,7 +275,14 @@ public class QiangHongBaoService extends AccessibilityService {
      * 如果已经被抢完，则直接返回
      */
     private void processInHongBaoDialog() {
-        AccessibilityNodeInfo nodeInfo = getRootInActiveWindow();
+        AccessibilityNodeInfo nodeInfo = null;
+        int sleepTime = 300 + new Random().nextInt(300);//此页面不延时获取不到，随机延时是为了防止被微信检测为外挂
+        while (sleepTime < 2000 && nodeInfo == null) {
+            SystemClock.sleep(sleepTime);
+            sleepTime += new Random().nextInt(300);
+            nodeInfo = getRootInActiveWindow();
+        }
+
         if (nodeInfo != null) {
             boolean isHave = false;
             int count = nodeInfo.getChildCount();
