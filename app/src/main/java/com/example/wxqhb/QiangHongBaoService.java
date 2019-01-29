@@ -126,7 +126,7 @@ public class QiangHongBaoService extends AccessibilityService {
         }
         //拆完红包后看详细的纪录界面
         else if (WECHAT_DETAIL.equals(event.getClassName())) {
-            SystemClock.sleep(500);//此页面不延时
+            SystemClock.sleep(500);
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
         }
     }
