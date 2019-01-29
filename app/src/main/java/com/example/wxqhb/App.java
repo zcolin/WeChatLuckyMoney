@@ -20,13 +20,9 @@ public class App extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-            @Override
-            public void uncaughtException(Thread thread, Throwable ex) {
-                Toast.makeText(App.this, "程序遇到错误:" + ex.getMessage(), Toast.LENGTH_LONG)
-                     .show();
-                ex.printStackTrace();
-            }
+        Thread.setDefaultUncaughtExceptionHandler((thread, ex) -> {
+            Toast.makeText(App.this, "程序遇到错误:" + ex.getMessage(), Toast.LENGTH_LONG).show();
+            ex.printStackTrace();
         });
     }
 }

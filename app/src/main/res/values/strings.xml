@@ -2,7 +2,6 @@
 <resources>
 
     <string name="app_name">WXQHB</string>
-    <string name="hello_world">Hello world!</string>
     <string name="description">请点击右上角的开启/关闭按钮\n开启服务后退出此页面会自动进行抢红包。\n为了确保服务不被杀死，最好在[电池管理]中将此应用添加为信任。\n\n https://github.com/zcolin/</string>
     <string name="guide"><![CDATA[操作步骤：\n1 点击 打开服务 \n2 找到 WXQHB \n3 开启服务 \n\n 注：为了确保服务不被杀死，最好在<电池管理>中将此应用添加为信任 \n\n https://github.com/zcolin]]></string>
 

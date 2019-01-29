@@ -1,6 +1,5 @@
 package com.example.wxqhb;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.AppOpsManager;
 import android.content.Context;
@@ -8,7 +7,6 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.view.View;
 
 public class MainActivity extends Activity {
     private static final int MY_PERMISSIONS_REQUEST_WRITE_SETTINGS      = 1100;
@@ -19,13 +17,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        findViewById(R.id.start_button).setOnClickListener(new View.OnClickListener() {
-
-            @Override
-            public void onClick(View v) {
-                openSetting();
-            }
-        });
+        findViewById(R.id.start_button).setOnClickListener(v -> openSetting());
     }
 
     private void openSetting() {
