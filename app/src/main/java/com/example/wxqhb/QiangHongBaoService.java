@@ -25,6 +25,11 @@ import java.util.List;
 import java.util.Random;
 
 public class QiangHongBaoService extends AccessibilityService {
+    static final int STATUS_ENTER_NONE      = 0;
+    static final int STATUS_ENTER_CHATPAGE  = 1;
+    static final int STATUS_RETURN_CHATPAGE = 2;
+
+
     /**
      * TODO 直接使用findAccessibilityNodeInfosByText获取不到，这个Id没验证在不同的手机和不同的微信版本会不会改变
      */
@@ -49,6 +54,11 @@ public class QiangHongBaoService extends AccessibilityService {
      * 所以不能使用集合存储已经点过的资源Id，只能当前屏幕内不重复点击
      */
     private long lastSourceId;
+
+    /**
+     * 主页进入的状态
+     */
+    private int mainEnterStatus;
 
     private int   screenHeight;
     private float screenDensity;
@@ -127,6 +137,9 @@ public class QiangHongBaoService extends AccessibilityService {
         //拆完红包后看详细的纪录界面
         else if (WECHAT_DETAIL.equals(event.getClassName())) {
             SystemClock.sleep(500);
+            if (mainEnterStatus == STATUS_ENTER_CHATPAGE) {
+                mainEnterStatus = STATUS_RETURN_CHATPAGE;
+            }
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
         }
     }
@@ -159,6 +172,7 @@ public class QiangHongBaoService extends AccessibilityService {
                     String str = String.valueOf(accessibilityNodeInfo.getText());
                     if (str != null && str.contains("[微信红包]")) {
                         accessibilityNodeInfo.getParent().performAction(AccessibilityNodeInfo.ACTION_CLICK);//进入聊天页面
+                        mainEnterStatus = STATUS_ENTER_CHATPAGE;
                         break;
                     }
                 }
@@ -224,6 +238,13 @@ public class QiangHongBaoService extends AccessibilityService {
                     break;
                 }
             }
+        } else {
+            //抢完所有红包之后，如果是主页面进来的，则返回主页面
+            if (mainEnterStatus == STATUS_RETURN_CHATPAGE) {
+                mainEnterStatus = STATUS_ENTER_NONE;
+                SystemClock.sleep(500);
+                performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+            }
         }
 
         if (nodeInfo != null) {
@@ -286,8 +307,13 @@ public class QiangHongBaoService extends AccessibilityService {
 
             if (!isHave) {
                 List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByText("红包派完了");
-                List<AccessibilityNodeInfo> list1 = nodeInfo.findAccessibilityNodeInfosByText("该红包已超过24小时");
-                if ((list != null && list.size() > 0) || (list1 != null && list1.size() > 0)) {
+                if (list == null || list.size() == 0) {
+                    list = nodeInfo.findAccessibilityNodeInfosByText("该红包已超过24小时");
+                }
+                if (list != null && list.size() > 0) {
+                    if (mainEnterStatus == STATUS_ENTER_CHATPAGE) {
+                        mainEnterStatus = STATUS_RETURN_CHATPAGE;
+                    }
                     performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
                 }
             }
