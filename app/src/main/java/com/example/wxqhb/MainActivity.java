@@ -9,7 +9,6 @@ import android.os.Bundle;
 import android.provider.Settings;
 
 public class MainActivity extends Activity {
-    private static final int MY_PERMISSIONS_REQUEST_WRITE_SETTINGS      = 1100;
     private static final int MY_PERMISSIONS_REQUEST_PACKAGE_USAGE_STATS = 1101;
 
     @Override

@@ -10,7 +10,6 @@
 package com.example.wxqhb;
 
 import android.accessibilityservice.AccessibilityService;
-import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.graphics.Rect;
@@ -25,6 +24,9 @@ import java.util.List;
 import java.util.Random;
 
 public class QiangHongBaoService extends AccessibilityService {
+    /**
+     * 红包从主页通过【微信红包】进入页面，状态判断，最终返回主页
+     */
     static final int STATUS_ENTER_NONE      = 0;
     static final int STATUS_ENTER_CHATPAGE  = 1;
     static final int STATUS_RETURN_CHATPAGE = 2;
@@ -33,19 +35,19 @@ public class QiangHongBaoService extends AccessibilityService {
     /**
      * TODO 直接使用findAccessibilityNodeInfosByText获取不到，这个Id没验证在不同的手机和不同的微信版本会不会改变
      */
-    static final String STR_ID_MAINPAGE_HONGBAO = "com.tencent.mm:id/b4q";//"[微信红包]"出现的地方
-    static final int    I_HEIGHT_FLAG           = 55;                //高度标准，红包距离底部的距离超过这个标准判断为新红包(现在微信的红包抢过的状态会改变，所以不用判断高度了)
+    static final String STR_ID_MAINPAGE_HONGBAO = "com.tencent.mm:id/b4q";  //"[微信红包]"出现的地方
 
     /**
-     * 微信的包名
+     * 高度标准，红包距离底部的距离超过这个标准判断为新红包(自己发的红包抢过了不会变色)
      */
-    static final String WECHAT_PACKAGENAME    = "com.tencent.mm";
+    static final int I_HEIGHT_FLAG = 55;
+
     /**
-     * 拆红包类
+     * 拆红包页面
      */
     static final String WECHAT_RECEIVER_CALSS = "com.tencent.mm.plugin.luckymoney.ui.LuckyMoneyNotHookReceiveUI";
     /**
-     * 红包详情类
+     * 红包详情页面
      */
     static final String WECHAT_DETAIL         = "com.tencent.mm.plugin.luckymoney.ui.LuckyMoneyDetailUI";
 
@@ -56,14 +58,32 @@ public class QiangHongBaoService extends AccessibilityService {
     private long lastSourceId;
 
     /**
-     * 主页进入的状态
+     * 主页通过【微信红包】进入的状态
      */
     private int mainEnterStatus;
 
-    private int   screenHeight;
+    /**
+     * 屏幕高度
+     */
+    private int screenHeight;
+
+    /**
+     * 屏幕密度
+     */
     private float screenDensity;
 
-    private KeyguardManager.KeyguardLock mKeyGuardLock;
+    @Override
+    public void onInterrupt() {
+        Toast.makeText(this, "中断抢红包服务", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        screenDensity = Util.getScreenDensity(getApplicationContext());
+        screenHeight = Util.getScreenHeight(getApplicationContext());
+        Toast.makeText(this, "连接抢红包服务", Toast.LENGTH_SHORT).show();
+    }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -77,19 +97,6 @@ public class QiangHongBaoService extends AccessibilityService {
             onWindowContentChanged(event);
             System.out.println(event.getClassName() + "===" + event.getContentDescription());
         }
-    }
-
-    @Override
-    public void onInterrupt() {
-        Toast.makeText(this, "中断抢红包服务", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    protected void onServiceConnected() {
-        super.onServiceConnected();
-        screenDensity = Util.getScreenDensity(getApplicationContext());
-        screenHeight = Util.getScreenHeight(getApplicationContext());
-        Toast.makeText(this, "连接抢红包服务", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -115,9 +122,6 @@ public class QiangHongBaoService extends AccessibilityService {
         }
 
         try {
-            mKeyGuardLock = Util.disableKeylock(getApplicationContext());
-            Util.acquireWakeLock(getApplicationContext());
-
             Notification notification = (Notification) event.getParcelableData();
             PendingIntent pendingIntent = notification.contentIntent;
             pendingIntent.send();
@@ -145,6 +149,48 @@ public class QiangHongBaoService extends AccessibilityService {
     }
 
     /**
+     * 红包Dialog界面的处理
+     * 如果还没有被拆则进行拆红包，拆完之后返回
+     * 如果已经被抢完，则直接返回
+     */
+    private void processInHongBaoDialog() {
+        /*此页面不延时获取不到，随机延时是为了防止被微信检测为外挂*/
+        AccessibilityNodeInfo nodeInfo = null;
+        int sleepTime = 300 + new Random().nextInt(300);
+        while (sleepTime < 2000 && nodeInfo == null) {
+            SystemClock.sleep(sleepTime);
+            sleepTime += new Random().nextInt(300);
+            nodeInfo = getRootInActiveWindow();
+        }
+
+        if (nodeInfo != null) {
+            boolean isHave = false;
+            int count = nodeInfo.getChildCount();
+            for (int i = 0; i < count; i++) {
+                AccessibilityNodeInfo childNode = nodeInfo.getChild(i);
+                if ("android.widget.Button".equals(childNode.getClassName())) {
+                    isHave = true;
+                    childNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                }
+            }
+
+            if (!isHave) {
+                List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByText("红包派完了");
+                if (list == null || list.size() == 0) {
+                    list = nodeInfo.findAccessibilityNodeInfosByText("该红包已超过24小时");
+                }
+                if (list != null && list.size() > 0) {
+                    if (mainEnterStatus == STATUS_ENTER_CHATPAGE) {
+                        mainEnterStatus = STATUS_RETURN_CHATPAGE;
+                    }
+                    performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+                }
+            }
+            nodeInfo.recycle();
+        }
+    }
+
+    /**
      * 监听窗口内容数据信息处理
      */
     private void onWindowContentChanged(AccessibilityEvent event) {
@@ -157,29 +203,32 @@ public class QiangHongBaoService extends AccessibilityService {
      * 在微信主页面的信息处理
      */
     private boolean openHongBaoInMainPage(AccessibilityEvent event) {
-        boolean isFlag = false;
+        boolean isInMainPage = false;
         AccessibilityNodeInfo rootNodeInfo = getRootInActiveWindow();
-        /*在聊天界面才会有"更多功能按钮,已折叠"，主页面不会有, 由此判断是不是在主页面*/
-        if (rootNodeInfo != null && (rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已折叠").isEmpty() && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已展开")
-                                                                                                                          .isEmpty()) && rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮")
-                                                                                                                                                     .size() > 0) {
-            isFlag = true;
-            lastSourceId = 0; //从聊天页面出来了，清除保存的sourceId；
-            AccessibilityNodeInfo nodeInfo = event.getSource();
-            if (nodeInfo != null) {
-                List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_MAINPAGE_HONGBAO);
-                for (AccessibilityNodeInfo accessibilityNodeInfo : list) {
-                    String str = String.valueOf(accessibilityNodeInfo.getText());
-                    if (str != null && str.contains("[微信红包]")) {
-                        accessibilityNodeInfo.getParent().performAction(AccessibilityNodeInfo.ACTION_CLICK);//进入聊天页面
-                        mainEnterStatus = STATUS_ENTER_CHATPAGE;
-                        break;
+        if (rootNodeInfo != null) {
+            /*在聊天界面才会有"更多功能按钮,已折叠"，主页面不会有, 由此判断是不是在主页面*/
+            boolean flag1 = rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已折叠").isEmpty();
+            boolean flag2 = rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮，已展开").isEmpty();
+            boolean flag3 = rootNodeInfo.findAccessibilityNodeInfosByText("更多功能按钮").size() > 0;
+            if (flag1 && flag2 && flag3) {
+                isInMainPage = true;
+                lastSourceId = 0; //从聊天页面出来了，清除保存的sourceId；
+                AccessibilityNodeInfo nodeInfo = event.getSource();
+                if (nodeInfo != null) {
+                    List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByViewId(STR_ID_MAINPAGE_HONGBAO);
+                    for (AccessibilityNodeInfo accessibilityNodeInfo : list) {
+                        String str = String.valueOf(accessibilityNodeInfo.getText());
+                        if (str != null && str.contains("[微信红包]")) {
+                            accessibilityNodeInfo.getParent().performAction(AccessibilityNodeInfo.ACTION_CLICK);//进入聊天页面
+                            mainEnterStatus = STATUS_ENTER_CHATPAGE;
+                            break;
+                        }
                     }
                 }
             }
             rootNodeInfo.recycle();
         }
-        return isFlag;
+        return isInMainPage;
     }
 
 
@@ -277,53 +326,6 @@ public class QiangHongBaoService extends AccessibilityService {
                     }
                 }
             }
-        }
-    }
-
-    /*
-     * 红包Dialog界面的处理
-     * 如果还没有被拆则进行拆红包，拆完之后返回
-     * 如果已经被抢完，则直接返回
-     */
-    private void processInHongBaoDialog() {
-        AccessibilityNodeInfo nodeInfo = null;
-        int sleepTime = 300 + new Random().nextInt(300);//此页面不延时获取不到，随机延时是为了防止被微信检测为外挂
-        while (sleepTime < 2000 && nodeInfo == null) {
-            SystemClock.sleep(sleepTime);
-            sleepTime += new Random().nextInt(300);
-            nodeInfo = getRootInActiveWindow();
-        }
-
-        if (nodeInfo != null) {
-            boolean isHave = false;
-            int count = nodeInfo.getChildCount();
-            for (int i = 0; i < count; i++) {
-                AccessibilityNodeInfo childNode = nodeInfo.getChild(i);
-                if ("android.widget.Button".equals(childNode.getClassName())) {
-                    isHave = true;
-                    childNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                }
-            }
-
-            if (!isHave) {
-                List<AccessibilityNodeInfo> list = nodeInfo.findAccessibilityNodeInfosByText("红包派完了");
-                if (list == null || list.size() == 0) {
-                    list = nodeInfo.findAccessibilityNodeInfosByText("该红包已超过24小时");
-                }
-                if (list != null && list.size() > 0) {
-                    if (mainEnterStatus == STATUS_ENTER_CHATPAGE) {
-                        mainEnterStatus = STATUS_RETURN_CHATPAGE;
-                    }
-                    performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
-                }
-            }
-            nodeInfo.recycle();
-        }
-
-        //如果是自动解锁的，此时需要锁上屏幕，为下一次自动解锁
-        if (mKeyGuardLock != null) {
-            mKeyGuardLock.reenableKeyguard();
-            mKeyGuardLock = null;
         }
     }
 

@@ -3,7 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#f79b9b"
+    android:background="#F09090"
     tools:context=".MainActivity">
 
     <TextView
@@ -24,7 +24,7 @@
         android:layout_height="wrap_content"
         android:layout_above="@+id/start_button2"
         android:layout_centerHorizontal="true"
-        android:layout_marginBottom="69dp"
+        android:layout_marginBottom="29dp"
         android:background="@drawable/btn_red_stroke_tc"
         android:gravity="center"
         android:text="打开服务"
